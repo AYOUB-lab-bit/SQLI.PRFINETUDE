@@ -1,0 +1,265 @@
+﻿@page "/deplacements"
+@using GestionVisaBlazorServer.Data
+@using GestionVisaBlazorServer.Services
+@inject ApplicationDbContext DbContext
+@inject ExportService ExportService
+@inject IJSRuntime JSRuntime
+@using Microsoft.EntityFrameworkCore
+@using System.ComponentModel.DataAnnotations
+
+<div class="container-fluid mt-5">
+    <!-- container-fluid pour plein écran -->
+    <div class="card shadow-lg border-0">
+        <div class="card-body">
+
+            <h3 class="card-title text-center text-primary mb-4">🧳 Gestion des Déplacements</h3>
+
+            <!-- Bouton Ajouter en haut de la liste -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <button class="btn btn-primary" @onclick="ShowAddModal">➕ Ajouter un déplacement</button>
+
+                <div>
+                    <button class="btn btn-outline-danger me-2" @onclick="ExportToPdf">📄 Exporter en PDF</button>
+                    <button class="btn btn-outline-success" @onclick="ExportToExcel">📊 Exporter en Excel</button>
+                </div>
+            </div>
+
+            <h4 class="mb-3">Liste des déplacements</h4>
+
+            @if (deplacements == null)
+            {
+                <p><em>Chargement...</em></p>
+            }
+            else if (!deplacements.Any())
+            {
+                <p>Aucun déplacement enregistré.</p>
+            }
+            else
+            {
+                <table class="table table-bordered table-striped w-100">
+                    <!-- w-100 pour pleine largeur -->
+                    <thead class="table-light">
+                        <tr>
+                            <th>Date début</th>
+                            <th>Date fin</th>
+                            <th>Équipe</th>
+                            <th>Observations</th>
+                            <th>Coût (€)</th>
+                            <th style="width:120px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in deplacements)
+                        {
+                            <tr>
+                                <td>@d.DateDebut.ToShortDateString()</td>
+                                <td>@d.DateFin.ToShortDateString()</td>
+                                <td>@d.Equipe</td>
+                                <td>@d.Observations</td>
+                                <td>@d.CoutTotal.ToString("F2")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-warning me-1" @onclick="() => EditDeplacement(d.Id)">✏️</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteDeplacement(d.Id)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal Bootstrap pour formulaire Ajout / Edition -->
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@((editMode ? "Modifier" : "Ajouter") + " un déplacement")</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="newDeplacement" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="mb-3">
+                            <label class="form-label">Date de début</label>
+                            <InputDate class="form-control" @bind-Value="newDeplacement.DateDebut" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Date de fin</label>
+                            <InputDate class="form-control" @bind-Value="newDeplacement.DateFin" min="@DateTime.Now.ToString("yyyy-MM-dd")" />
+                            @if (!string.IsNullOrEmpty(validationMessage))
+                            {
+                                <div class="text-danger mt-2">@validationMessage</div>
+                            }
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Équipe</label>
+                            <InputSelect class="form-select" @bind-Value="newDeplacement.Equipe">
+                                @foreach (var equipe in Enum.GetValues(typeof(Equipe)))
+                                {
+                                    <option value="@equipe">@equipe</option>
+                                }
+                            </InputSelect>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Observations</label>
+                            <InputTextArea class="form-control" @bind-Value="newDeplacement.Observations" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Coût total (€)</label>
+                            <InputNumber class="form-control" @bind-Value="newDeplacement.CoutTotal" />
+                        </div>
+
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-success me-2" type="submit">@(editMode ? "Modifier" : "Créer")</button>
+                            <button class="btn btn-secondary" type="button" @onclick="CloseModal">Annuler</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Deplacement> deplacements;
+    private Deplacement newDeplacement = new Deplacement
+        {
+            DateDebut = DateTime.Now,
+            DateFin = DateTime.Now
+        };
+    private bool editMode = false;
+    private string validationMessage = string.Empty;
+    private bool showModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        deplacements = await DbContext.Deplacements.ToListAsync();
+    }
+
+    private async Task HandleSubmit()
+    {
+        validationMessage = ValidateDates();
+        if (!string.IsNullOrEmpty(validationMessage))
+        {
+            return;
+        }
+
+        if (editMode)
+        {
+            DbContext.Deplacements.Update(newDeplacement);
+        }
+        else
+        {
+            DbContext.Deplacements.Add(newDeplacement);
+        }
+
+        await DbContext.SaveChangesAsync();
+        await LoadData();
+
+        CloseModal();
+    }
+
+    private string ValidateDates()
+    {
+        if (newDeplacement.DateFin < newDeplacement.DateDebut)
+        {
+            return "La date de fin doit être postérieure à la date de début.";
+        }
+
+        return null;
+    }
+
+    private void ShowAddModal()
+    {
+        newDeplacement = new Deplacement
+            {
+                DateDebut = DateTime.Now,
+                DateFin = DateTime.Now
+            };
+        editMode = false;
+        validationMessage = string.Empty;
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        validationMessage = string.Empty;
+    }
+
+    private void EditDeplacement(int id)
+    {
+        var dep = deplacements.FirstOrDefault(d => d.Id == id);
+        if (dep != null)
+        {
+            newDeplacement = new Deplacement
+                {
+                    Id = dep.Id,
+                    DateDebut = dep.DateDebut,
+                    DateFin = dep.DateFin,
+                    Equipe = dep.Equipe,
+                    Observations = dep.Observations,
+                    CoutTotal = dep.CoutTotal
+                };
+            editMode = true;
+            validationMessage = string.Empty;
+            showModal = true;
+        }
+    }
+
+    private async Task DeleteDeplacement(int id)
+    {
+        var dep = await DbContext.Deplacements.FindAsync(id);
+        if (dep != null)
+        {
+            DbContext.Deplacements.Remove(dep);
+            await DbContext.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private async Task ExportToPdf()
+    {
+        var header = new[] { "Date début", "Date fin", "Équipe", "Observations", "Coût (€)" };
+        var data = deplacements.Select(d => new object[]
+        {
+            d.DateDebut.ToShortDateString(),
+            d.DateFin.ToShortDateString(),
+            d.Equipe.ToString(),
+            d.Observations ?? "-",
+            d.CoutTotal.ToString("F2")
+        }).ToList();
+
+        await JSRuntime.InvokeVoidAsync("GeneratePDF", new
+        {
+            header,
+            data,
+            title = "Liste des Déplacements",
+            fileName = "Deplacements.pdf"
+        });
+    }
+
+    private async Task ExportToExcel()
+    {
+        var excelData = await ExportService.GenerateExcelDeplacements(deplacements);
+        var base64Data = Convert.ToBase64String(excelData);
+        var fileName = "deplacements.xlsx";
+
+        await JSRuntime.InvokeVoidAsync("BlazorDownloadFile", fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64Data);
+    }
+}

@@ -1,0 +1,59 @@
+﻿@using GestionVisaBlazorServer.Data
+@inject ApplicationDbContext DbContext
+@using Microsoft.EntityFrameworkCore
+
+@code {
+    private int dernierDeplacementId = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var dernier = await DbContext.Deplacements
+            .OrderByDescending(d => d.DateDebut)
+            .FirstOrDefaultAsync();
+
+        if (dernier != null)
+        {
+            dernierDeplacementId = dernier.Id;
+        }
+    }
+
+    private List<(string href, string icon, string text)> GetNavLinks()
+    {
+        var links = new List<(string href, string icon, string text)>
+        {
+            ("/", "bi-house-door-fill", "Accueil"),
+            ("/collaborateurs", "bi-person-fill", "Collaborateurs"),
+            ("/demandes-visa", "bi-journal-check", "Demandes VISA"),
+            ("/deplacements", "bi-truck", "Déplacements"),
+            ($"/proposition-collaborateurs/{dernierDeplacementId}", "bi-people-fill", "Proposition Collaborateurs"),
+            ("/statistiques", "bi-bar-chart-fill", "Statistiques")
+        };
+
+        return links;
+    }
+}
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+    <div class="container-fluid">
+        <a class="navbar-brand fw-bold" href="/">GestionVisa</a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+            <ul class="navbar-nav">
+                @foreach (var (href, icon, text) in GetNavLinks())
+                {
+                    <li class="nav-item">
+                        <NavLink class="nav-link px-3" href="@href" Match="NavLinkMatch.All"
+                                 ActiveClass="active text-warning fw-semibold">
+                            <i class="bi @icon me-2"></i>@text
+                        </NavLink>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+</nav>

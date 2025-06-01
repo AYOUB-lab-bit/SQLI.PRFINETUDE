@@ -1,0 +1,148 @@
+﻿@page "/statistiques"
+@using GestionVisaBlazorServer.Data
+@using Microsoft.EntityFrameworkCore
+
+@inject ApplicationDbContext DbContext
+
+<h3 class="mt-4 mb-3">Statistiques et Reporting</h3>
+
+@if (!statistiquesChargees)
+{
+    <p><em>Chargement des statistiques...</em></p>
+}
+else
+{
+    <!-- Ligne 1 : KPIs globaux -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card text-white bg-primary shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Total Déplacements</h5>
+                    <p class="card-text display-4">@nombreDeplacements</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-success shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Coût Total</h5>
+                    <p class="card-text display-4">@coutTotalDeplacements.ToString("C")</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-info shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Coût Moyen</h5>
+                    <p class="card-text display-4">@coutMoyenDeplacements.ToString("C")</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ligne 2 : Déplacements groupés -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Déplacements par Équipe</h5>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var item in deplacementsParEquipe)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                @item.Key
+                                <span class="badge bg-primary rounded-pill">@item.Value</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Déplacements par Collaborateur</h5>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var item in deplacementsParCollaborateur)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                @item.Key
+                                <span class="badge bg-secondary rounded-pill">@item.Value</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ligne 3 : Pourcentages -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card text-white bg-warning shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Collab Déplacés</h5>
+                    <p class="card-text display-5">@pourcentageCollabDeplaces %</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card text-white bg-danger shadow">
+                <div class="card-body">
+                    <h5 class="card-title">Visa Valide</h5>
+                    <p class="card-text display-5">@pourcentageVisaValide %</p>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private int nombreDeplacements;
+    private Dictionary<string, int> deplacementsParEquipe = new();
+    private Dictionary<string, int> deplacementsParCollaborateur = new();
+    private double pourcentageCollabDeplaces;
+    private double pourcentageVisaValide;
+    private decimal coutTotalDeplacements;
+    private decimal coutMoyenDeplacements;
+    private bool statistiquesChargees = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var totalCollaborateurs = await DbContext.Collaborateurs.CountAsync();
+
+        // 1. Nombre total de déplacements
+        nombreDeplacements = await DbContext.Deplacements.CountAsync();
+
+        // 2. Déplacements par équipe
+        deplacementsParEquipe = await DbContext.Deplacements
+            .GroupBy(d => d.Equipe.ToString())
+            .Select(g => new { Equipe = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Equipe, g => g.Count);
+
+        // 3. Déplacements par collaborateur
+        deplacementsParCollaborateur = await DbContext.DeplacementCollaborateurs
+            .Include(dc => dc.Collaborateur)
+            .GroupBy(dc => dc.Collaborateur.Nom)
+            .Select(g => new { Nom = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Nom, g => g.Count);
+
+        // 4. Pourcentage collaborateurs déplacés
+        var collabDeplaces = await DbContext.DeplacementCollaborateurs
+            .Select(dc => dc.CollaborateurId)
+            .Distinct()
+            .CountAsync();
+        pourcentageCollabDeplaces = totalCollaborateurs == 0 ? 0 : Math.Round((double)collabDeplaces / totalCollaborateurs * 100, 2);
+
+        // 5. Pourcentage collaborateurs avec visa valide
+        var collabAvecVisa = await DbContext.Collaborateurs
+            .CountAsync(c => c.DateDebutVisa != null);
+        pourcentageVisaValide = totalCollaborateurs == 0 ? 0 : Math.Round((double)collabAvecVisa / totalCollaborateurs * 100, 2);
+
+        // 6. Total et moyenne des coûts
+        coutTotalDeplacements = await DbContext.Deplacements.SumAsync(d => d.CoutTotal);
+        coutMoyenDeplacements = nombreDeplacements == 0 ? 0 : coutTotalDeplacements / nombreDeplacements;
+
+        statistiquesChargees = true;
+    }
+}

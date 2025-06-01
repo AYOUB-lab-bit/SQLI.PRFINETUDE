@@ -1,0 +1,251 @@
+﻿@page "/collaborateurs"
+@using GestionVisaBlazorServer.Models
+@using GestionVisaBlazorServer.Data
+@using GestionVisaBlazorServer.Services
+@inject ApplicationDbContext DbContext
+@inject ExportService ExportService
+@inject IJSRuntime JSRuntime
+@using Microsoft.EntityFrameworkCore
+@using System.ComponentModel.DataAnnotations
+
+<div class="container-fluid mt-5">
+    <div class="card shadow-lg border-0">
+        <div class="card-body">
+
+            <h3 class="card-title text-center text-primary mb-4">👥 Gestion des Collaborateurs</h3>
+
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <button class="btn btn-primary" @onclick="ShowAddModal">➕ Ajouter un collaborateur</button>
+                <div>
+                    <button class="btn btn-outline-danger me-2" @onclick="ExportToPdf">📄 Exporter en PDF</button>
+                    <button class="btn btn-outline-success" @onclick="ExportToExcel">📊 Exporter en Excel</button>
+                </div>
+            </div>
+
+            <h4 class="mb-3">Liste des collaborateurs</h4>
+
+            @if (collaborateurs == null)
+            {
+                <p><em>Chargement...</em></p>
+            }
+            else if (!collaborateurs.Any())
+            {
+                <p>Aucun collaborateur enregistré.</p>
+            }
+            else
+            {
+                <table class="table table-bordered table-striped w-100">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nom</th>
+                            <th>Prénom</th>
+                            <th>Poste</th>
+                            <th>Ancienneté (ans)</th>
+                            <th>Validité Passeport</th>
+                            <th>Début Visa</th>
+                            <th>Fin Visa</th>
+                            <th style="width:120px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in collaborateurs)
+                        {
+                            <tr>
+                                <td>@c.Nom</td>
+                                <td>@c.Prenom</td>
+                                <td>@c.Poste</td>
+                                <td>@c.AnciennetéProjet</td>
+                                <td>@c.DateValiditePasseport.ToShortDateString()</td>
+                                <td>@(c.DateDebutVisa?.ToShortDateString() ?? "-")</td>
+                                <td>@(c.DateFinVisa?.ToShortDateString() ?? "-")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-warning me-1" @onclick="() => EditCollaborateur(c.Id)">✏️</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteCollaborateur(c.Id)">🗑️</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@if (showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@((editMode ? "Modifier" : "Ajouter") + " un collaborateur")</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="newCollaborateur" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="mb-3">
+                            <label class="form-label">Nom</label>
+                            <InputText class="form-control" @bind-Value="newCollaborateur.Nom" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Prénom</label>
+                            <InputText class="form-control" @bind-Value="newCollaborateur.Prenom" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Poste</label>
+                            <InputText class="form-control" @bind-Value="newCollaborateur.Poste" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Ancienneté projet (en années)</label>
+                            <InputNumber class="form-control" @bind-Value="newCollaborateur.AnciennetéProjet" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Date validité passeport</label>
+                            <InputDate class="form-control" @bind-Value="newCollaborateur.DateValiditePasseport" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Date début visa</label>
+                            <InputDate class="form-control" @bind-Value="newCollaborateur.DateDebutVisa" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Date fin visa</label>
+                            <InputDate class="form-control" @bind-Value="newCollaborateur.DateFinVisa" />
+                        </div>
+
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-success me-2" type="submit">@(editMode ? "Modifier" : "Créer")</button>
+                            <button class="btn btn-secondary" type="button" @onclick="CloseModal">Annuler</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Collaborateur> collaborateurs;
+    private Collaborateur newCollaborateur = new Collaborateur
+    {
+        DateValiditePasseport = DateTime.Now,
+        DateDebutVisa = DateTime.Now,
+        DateFinVisa = DateTime.Now
+    };
+
+    private bool editMode = false;
+    private bool showModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        collaborateurs = await DbContext.Collaborateurs.ToListAsync();
+    }
+
+    private void ShowAddModal()
+    {
+        newCollaborateur = new Collaborateur
+        {
+            DateValiditePasseport = DateTime.Now,
+            DateDebutVisa = DateTime.Now,
+            DateFinVisa = DateTime.Now
+        };
+        editMode = false;
+        showModal = true;
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (editMode)
+        {
+            DbContext.Collaborateurs.Update(newCollaborateur);
+        }
+        else
+        {
+            DbContext.Collaborateurs.Add(newCollaborateur);
+        }
+        await DbContext.SaveChangesAsync();
+        await LoadData();
+        CloseModal();
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+    }
+
+    private void EditCollaborateur(int id)
+    {
+        var c = collaborateurs.FirstOrDefault(c => c.Id == id);
+        if (c != null)
+        {
+            newCollaborateur = new Collaborateur
+            {
+                Id = c.Id,
+                Nom = c.Nom,
+                Prenom = c.Prenom,
+                Poste = c.Poste,
+                AnciennetéProjet = c.AnciennetéProjet,
+                DateValiditePasseport = c.DateValiditePasseport,
+                DateDebutVisa = c.DateDebutVisa,
+                DateFinVisa = c.DateFinVisa
+            };
+            editMode = true;
+            showModal = true;
+        }
+    }
+
+    private async Task DeleteCollaborateur(int id)
+    {
+        var c = await DbContext.Collaborateurs.FindAsync(id);
+        if (c != null)
+        {
+            DbContext.Collaborateurs.Remove(c);
+            await DbContext.SaveChangesAsync();
+            await LoadData();
+        }
+    }
+
+    private async Task ExportToPdf()
+    {
+        var header = new[] { "Nom", "Prénom", "Poste", "Ancienneté", "Validité Passeport", "Début Visa", "Fin Visa" };
+        var data = collaborateurs.Select(c => new object[]
+        {
+            c.Nom,
+            c.Prenom,
+            c.Poste,
+            c.AnciennetéProjet.ToString(),
+            c.DateValiditePasseport.ToShortDateString(),
+            c.DateDebutVisa?.ToShortDateString() ?? "-",
+            c.DateFinVisa?.ToShortDateString() ?? "-"
+        }).ToList();
+
+        await JSRuntime.InvokeVoidAsync("GeneratePDF", new
+        {
+            header,
+            data,
+            title = "Liste des Collaborateurs",
+            fileName = "Collaborateurs.pdf"
+        });
+    }
+
+    private async Task ExportToExcel()
+    {
+        var excelData = await ExportService.GenerateExcelCollaborateurs(collaborateurs);
+        var base64Data = Convert.ToBase64String(excelData);
+        var fileName = "collaborateurs.xlsx";
+
+        await JSRuntime.InvokeVoidAsync("BlazorDownloadFile", fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64Data);
+    }
+}

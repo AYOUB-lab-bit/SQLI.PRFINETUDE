@@ -1,0 +1,284 @@
+﻿@page "/demandes-visa"
+@using GestionVisaBlazorServer.Data
+@inject ApplicationDbContext DbContext
+@inject GestionVisaBlazorServer.Services.ExportService ExportService
+@inject IJSRuntime JsRuntime
+
+@using GestionVisaBlazorServer.Models
+@using Microsoft.EntityFrameworkCore
+
+<div class="container-fluid mt-4">
+    <div class="card shadow-lg border-0">
+        <div class="card-body">
+
+            <h3 class="card-title text-center text-primary mb-4">🛂 Gestion des Demandes de VISA</h3>
+
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4 class="mb-0">Liste des demandes de VISA</h4>
+                <div class="btn-group">
+                    <button class="btn btn-success me-2" @onclick="ShowCreateForm">
+                        <i class="bi bi-plus-circle me-2"></i> Nouvelle demande
+                    </button>
+                    <button class="btn btn-outline-primary me-2" @onclick="ExportToExcel">
+                        <i class="bi bi-file-earmark-excel me-1"></i> Exporter Excel
+                    </button>
+                    <button class="btn btn-outline-danger" @onclick="ExportToPdf">
+                        <i class="bi bi-file-earmark-pdf me-1"></i> Exporter PDF
+                    </button>
+                </div>
+            </div>
+
+            @if (demandesVisa == null)
+            {
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2"><em>Chargement des demandes...</em></p>
+                </div>
+            }
+            else if (!demandesVisa.Any())
+            {
+                <p class="text-muted">Aucune demande de visa enregistrée pour le moment.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped table-bordered w-100 align-middle">
+                        <thead class="table-primary">
+                            <tr>
+                                <th>Collaborateur</th>
+                                <th>Statut</th>
+                                <th>Date Demande</th>
+                                <th>Durée Visa</th>
+                                <th>Observations</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var demande in demandesVisa)
+                            {
+                                <tr>
+                                    <td>@demande.Collaborateur?.Nom @demande.Collaborateur?.Prenom</td>
+                                    <td>@demande.Statut</td>
+                                    <td>@demande.DateDemande.ToString("dd/MM/yyyy")</td>
+                                    <td>@demande.DureeVisa</td>
+                                    <td>@demande.Observations</td>
+                                    <td class="text-center">
+                                        <button class="btn btn-sm btn-outline-warning me-2" @onclick="() => EditDemandeVisa(demande.Id)">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDemandeVisa(demande.Id)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+
+        </div>
+    </div>
+</div>
+
+@* Modal Bootstrap pour formulaire *@
+@if (showForm)
+{
+    <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@((isEditing ? "Modifier" : "Créer") + " une demande de VISA")</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CancelCreateDemande"></button>
+                </div>
+                <div class="modal-body">
+                    @if (collaborateurs == null)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2"><em>Chargement des collaborateurs...</em></p>
+                        </div>
+                    }
+                    else
+                    {
+                        <EditForm Model="newDemandeVisa" OnValidSubmit="HandleValidSubmit">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary />
+
+                            <div class="mb-3">
+                                <label class="form-label">Collaborateur</label>
+                                <InputSelect class="form-control" @bind-Value="newDemandeVisa.CollaborateurId" required>
+                                    <option value="">Sélectionner un collaborateur</option>
+                                    @foreach (var c in collaborateurs)
+                                    {
+                                        <option value="@c.Id">@c.Nom @c.Prenom</option>
+                                    }
+                                </InputSelect>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Statut</label>
+                                <InputSelect class="form-control" @bind-Value="newDemandeVisa.Statut" required>
+                                    <option value="">Sélectionner un statut</option>
+                                    @foreach (var s in Enum.GetValues(typeof(StatutVisa)).Cast<StatutVisa>())
+                                    {
+                                        <option value="@s">@s</option>
+                                    }
+                                </InputSelect>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Date de la demande</label>
+                                <InputDate class="form-control" @bind-Value="newDemandeVisa.DateDemande" min="2025-01-01" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Durée du Visa (en jours)</label>
+                                <InputNumber class="form-control" @bind-Value="newDemandeVisa.DureeVisa" Min="1" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Observations</label>
+                                <InputTextArea class="form-control" @bind-Value="newDemandeVisa.Observations" />
+                            </div>
+
+                            <button class="btn btn-primary" type="submit" disabled="@isSubmitting">
+                                @(isEditing ? "Mettre à jour" : "Enregistrer")
+                            </button>
+                            <button class="btn btn-secondary ms-2" type="button" @onclick="CancelCreateDemande">Annuler</button>
+                        </EditForm>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<DemandeVisa> demandesVisa;
+    private List<Collaborateur> collaborateurs;
+    private DemandeVisa newDemandeVisa = new() { DateDemande = DateTime.Today };
+    private bool isEditing = false;
+    private bool isSubmitting = false;
+    private bool showForm = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        collaborateurs = await DbContext.Collaborateurs.ToListAsync();
+        demandesVisa = await DbContext.DemandesVisa.Include(d => d.Collaborateur).ToListAsync();
+    }
+
+    private void ShowCreateForm()
+    {
+        newDemandeVisa = new DemandeVisa { DateDemande = DateTime.Today };
+        isEditing = false;
+        showForm = true;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        isSubmitting = true;
+        try
+        {
+            if (isEditing)
+            {
+                var demande = await DbContext.DemandesVisa.FindAsync(newDemandeVisa.Id);
+                if (demande != null)
+                {
+                    demande.CollaborateurId = newDemandeVisa.CollaborateurId;
+                    demande.Statut = newDemandeVisa.Statut;
+                    demande.DateDemande = newDemandeVisa.DateDemande;
+                    demande.DureeVisa = newDemandeVisa.DureeVisa;
+                    demande.Observations = newDemandeVisa.Observations;
+                    await DbContext.SaveChangesAsync();
+                }
+            }
+            else
+            {
+                DbContext.DemandesVisa.Add(newDemandeVisa);
+                await DbContext.SaveChangesAsync();
+            }
+
+            await LoadDataAsync();
+            showForm = false;
+            isEditing = false;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task EditDemandeVisa(int id)
+    {
+        var demande = await DbContext.DemandesVisa.FindAsync(id);
+        if (demande != null)
+        {
+            newDemandeVisa = new DemandeVisa
+                {
+                    Id = demande.Id,
+                    CollaborateurId = demande.CollaborateurId,
+                    Statut = demande.Statut,
+                    DateDemande = demande.DateDemande,
+                    DureeVisa = demande.DureeVisa,
+                    Observations = demande.Observations
+                };
+            isEditing = true;
+            showForm = true;
+        }
+    }
+
+    private async Task DeleteDemandeVisa(int id)
+    {
+        var demande = await DbContext.DemandesVisa.FindAsync(id);
+        if (demande != null)
+        {
+            DbContext.DemandesVisa.Remove(demande);
+            await DbContext.SaveChangesAsync();
+            await LoadDataAsync();
+        }
+    }
+
+    private void CancelCreateDemande()
+    {
+        showForm = false;
+        isEditing = false;
+        newDemandeVisa = new DemandeVisa { DateDemande = DateTime.Today };
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (demandesVisa == null || !demandesVisa.Any())
+            return;
+
+        var fileBytes = await ExportService.GenerateExcelDemandesVisa(demandesVisa);
+        var base64 = Convert.ToBase64String(fileBytes);
+
+        await JsRuntime.InvokeVoidAsync("BlazorDownloadFile", "DemandesVisa.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", base64);
+    }
+
+    private async Task ExportToPdf()
+    {
+        if (demandesVisa == null || !demandesVisa.Any())
+            return;
+
+        string[] header = { "Collaborateur", "Statut", "Date Demande", "Durée Visa", "Observations" };
+
+        var data = demandesVisa.Select(d => new object[]
+        {
+            $"{d.Collaborateur?.Nom} {d.Collaborateur?.Prenom}",
+            d.Statut.ToString(),
+            d.DateDemande.ToString("dd/MM/yyyy"),
+            d.DureeVisa.ToString(),
+            d.Observations ?? ""
+        }).ToList();
+
+        await JsRuntime.InvokeVoidAsync("GeneratePDF", new { header, data });
+    }
+}

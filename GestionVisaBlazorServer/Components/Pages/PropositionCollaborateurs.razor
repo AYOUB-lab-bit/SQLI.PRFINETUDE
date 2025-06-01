@@ -1,0 +1,167 @@
+﻿@page "/proposition-collaborateurs/{DeplacementId:int}"
+@using GestionVisaBlazorServer.Data
+@using GestionVisaBlazorServer.Models
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext DbContext
+
+<h3>Proposition des prochains collaborateurs à se déplacer</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (collaborateursProposes == null)
+{
+    <p><em>Chargement des collaborateurs...</em></p>
+}
+else if (!collaborateursProposes.Any())
+{
+    <p>Aucun collaborateur éligible trouvé pour ce déplacement.</p>
+}
+else
+{
+    <table class="table table-bordered table-striped">
+        <thead class="table-light">
+            <tr>
+                <th>Nom</th>
+                <th>Équipe</th>
+                <th>Ancienneté Projet</th>
+                <th>Visa valide</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var collaborateur in collaborateursProposes)
+            {
+                <tr>
+                    <td>@collaborateur.Nom</td>
+                    <td>@collaborateur.Poste</td>
+                    <td>@collaborateur.AnciennetéProjet</td>
+                    <td>@(collaborateur.DateDebutVisa <= DateTime.Today && collaborateur.DateFinVisa >= DateTime.Today ? "Oui" : "Non")</td>
+                    <td>
+                        <button class="btn btn-primary" @onclick="() => AjouterCollaborateurAuDeplacement(collaborateur.Id)">
+                            Sélectionner
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public int DeplacementId { get; set; }
+
+    private List<Collaborateur> collaborateursProposes = new();
+    private string errorMessage = string.Empty;
+    private Deplacement? deplacement;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Charger le déplacement courant
+            deplacement = await DbContext.Deplacements
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == DeplacementId);
+
+            if (deplacement == null)
+            {
+                errorMessage = "Déplacement introuvable.";
+                return;
+            }
+
+            // Charger les collaborateurs proposés
+            collaborateursProposes = await ProposerProchainsCollaborateurs();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Erreur lors du chargement : {ex.Message}";
+        }
+    }
+
+    private async Task<List<Collaborateur>> ProposerProchainsCollaborateurs()
+    {
+        var today = DateTime.Today;
+
+        // Récupérer le dernier déplacement (hors déplacement courant) et ses collaborateurs
+        var dernierDeplacement = await DbContext.DeplacementCollaborateurs
+            .Include(dc => dc.Deplacement)
+            .Where(dc => dc.DeplacementId != DeplacementId)
+            .OrderByDescending(dc => dc.Deplacement.DateDebut)
+            .Select(dc => dc.Deplacement)
+            .FirstOrDefaultAsync();
+
+        // Déterminer l'équipe du dernier déplacement ou celle du déplacement courant si aucun précédent
+        var equipeDernierDeplacement = dernierDeplacement?.Equipe ?? deplacement!.Equipe;
+
+        // Équipe opposée pour le tour de rôle
+        string equipeRecherche = equipeDernierDeplacement switch
+        {
+            Equipe.TMA => "Roadmap",
+            Equipe.Roadmap => "TMA",
+            _ => throw new InvalidOperationException("Équipe inconnue")
+        };
+
+        // Récupérer collaborateurs avec visa valide et poste = équipe recherchée
+        var collaborateursValides = await DbContext.Collaborateurs
+            .AsNoTracking()
+            .Where(c =>
+                c.DateDebutVisa.HasValue &&
+                c.DateFinVisa.HasValue &&
+                c.DateDebutVisa.Value <= today &&
+                c.DateFinVisa.Value >= today &&
+                c.Poste != null &&
+                c.Poste.ToLower() == equipeRecherche.ToLower()
+            )
+            .ToListAsync();
+
+        if (!collaborateursValides.Any())
+            return new List<Collaborateur>();
+
+        // Exclure collaborateurs déjà ajoutés au déplacement courant
+        var idsDejaDeplaces = await DbContext.DeplacementCollaborateurs
+            .Where(dc => dc.DeplacementId == DeplacementId)
+            .Select(dc => dc.CollaborateurId)
+            .ToListAsync();
+
+        var candidats = collaborateursValides
+            .Where(c => !idsDejaDeplaces.Contains(c.Id))
+            .OrderByDescending(c => c.AnciennetéProjet) // plus anciens d'abord
+            .ThenBy(_ => Guid.NewGuid()) // tirage aléatoire en cas d'égalité
+            .ToList();
+
+        return candidats;
+    }
+
+    private async Task AjouterCollaborateurAuDeplacement(int collaborateurId)
+    {
+        try
+        {
+            var existeDeja = await DbContext.DeplacementCollaborateurs
+                .AnyAsync(dc => dc.DeplacementId == DeplacementId && dc.CollaborateurId == collaborateurId);
+
+            if (!existeDeja)
+            {
+                var dc = new DeplacementCollaborateur
+                    {
+                        DeplacementId = DeplacementId,
+                        CollaborateurId = collaborateurId
+                    };
+
+                DbContext.DeplacementCollaborateurs.Add(dc);
+                await DbContext.SaveChangesAsync();
+
+                // Recharger les propositions
+                collaborateursProposes = await ProposerProchainsCollaborateurs();
+
+                // Rafraîchir l'affichage
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Erreur lors de l'ajout : {ex.Message}";
+        }
+    }
+}
